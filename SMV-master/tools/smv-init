@@ -1,0 +1,99 @@
+#!/bin/bash
+
+QUITE_MODE=0
+if [ "$1" = "-q" ]; then
+    QUITE_MODE=1
+    shift
+fi
+
+if [ $# -ne 2 ]; then
+    echo "ERROR: Invalid number of arguments"
+    echo "USAGE: $0 [-q] project_name base_project_class"
+    echo "example:"
+    echo "  \$ $0 MyProject com.mycompany.myproj"
+    echo ""
+    echo "In the above example, the group id of the project will be 'com.mycompany'"
+    echo "and the artifact id will be 'myproj'"
+    exit 1
+fi
+
+TEMPLATE_DIR="$(cd "`dirname "$0"`"; pwd)/template"
+PROJ_DIR="$1"
+PROJ_CLASS="$2"
+
+function extract_group_artifact_ids()
+{
+    PROJ_GROUP_ID="${PROJ_CLASS%.*}"
+    PROJ_ARTIFACT_ID="${PROJ_CLASS##*.}"
+
+    if [ "$PROJ_GROUP_ID" == "$PROJ_ARTIFACT_ID" ]; then
+        echo "Invalid project class: $PROJ_CLASS"
+        echo "the class must have at least two levels a.b"
+        exit 1
+    fi
+}
+
+function create_proj_dir()
+{
+    echo "-- creating project directory"
+
+    if [ -d "$PROJ_DIR" ]; then
+      echo "$PROJ_DIR already exists"
+      exit 1
+    fi
+
+    mkdir "$PROJ_DIR"
+    export PROJ_DIR_FULL_PATH=$(cd $PROJ_DIR; /bin/pwd)
+}
+
+function copy_with_inject()
+{
+    SRC="$1"
+    DST="$2"
+    echo "-- copying `basename "$DST"`"
+
+    ESCAPED_FULL_PATH=$(echo ${PROJ_DIR_FULL_PATH}|sed -e 's/[\/&]/\\&/g')
+
+    mkdir -p "$(dirname "$DST")"
+    sed -e "s/_GROUP_ID_/$PROJ_GROUP_ID/" \
+        -e "s/_ARTIFACT_ID_/$PROJ_ARTIFACT_ID/" \
+        -e "s/_PROJ_CLASS_/$PROJ_CLASS/g" \
+        -e "s/_PROJ_DIR_FULL_PATH_/${ESCAPED_FULL_PATH}/g" \
+        < "$SRC" > "$DST"
+}
+
+function copy_conf_files()
+{
+    FILES="pom.xml build.sbt project/assembly.sbt project/build.properties README.md .gitignore log4j.properties conf/shell_init.scala conf/smv-app-conf.props conf/smv-user-conf.props"
+    for f in $FILES; do
+        copy_with_inject "$TEMPLATE_DIR/$f" "$PROJ_DIR/$f"
+    done
+}
+
+function copy_data_files()
+{
+    echo "-- copying data files"
+
+    cp -R "${TEMPLATE_DIR}/data" "$PROJ_DIR"
+}
+
+function copy_src_files()
+{
+    echo "-- copying source files"
+
+    PROJ_CLASS_PATH="`echo $PROJ_CLASS | sed -e 's/\./\//g'`"
+    DST_DIR="${PROJ_DIR_FULL_PATH}/src/main/scala/${PROJ_CLASS_PATH}"
+
+    (cd ${TEMPLATE_DIR}/src; find . -type f | while read f; do
+      SRC_FILE="${TEMPLATE_DIR}/src/$f"
+      DST_FILE="${DST_DIR}/$f"
+      copy_with_inject "$SRC_FILE" "$DST_FILE"
+    done)
+}
+
+# --- MAIN ---
+extract_group_artifact_ids
+create_proj_dir
+copy_conf_files
+copy_data_files
+copy_src_files

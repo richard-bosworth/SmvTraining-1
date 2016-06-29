@@ -1,0 +1,5 @@
+# application name
+smv.appName = Example App
+
+# stage definitions
+smv.stages = org.tresamigos.smvtraining.stage1, org.tresamigos.smvtraining.stage2
